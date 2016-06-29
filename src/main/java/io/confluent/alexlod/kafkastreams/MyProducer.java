@@ -38,14 +38,8 @@ public class MyProducer {
     Producer<Integer, String> producer = new KafkaProducer<Integer, String>(props);
 
     try {
-      // produce click data.
-      for (int i = 0; i < CLICK_MESSAGES; i++) {
-        int userId = randomGenerator.nextInt(USER_COUNT);
-        String url = "http://foo.bar/" + randomGenerator.nextInt(6);
-        producer.send(new ProducerRecord<Integer, String>(CLICK_TOPIC, userId, url));
-      }
-
-      // produce location data.
+      // produce location data. These must be produced before the click data so they're loaded
+      // into the KTable before the KStream arrives with clicks.
       for (int userId = 0; userId < USER_COUNT; userId++) {
         int random = randomGenerator.nextInt(3);
         String location;
@@ -60,6 +54,21 @@ public class MyProducer {
             location = "Woodside";
         }
         producer.send(new ProducerRecord<Integer, String>(LOCATION_TOPIC, userId, location));
+      }
+
+      // flush messages and sleep, just in case.
+      producer.flush();
+      try {
+        Thread.sleep(1000);
+      } catch (InterruptedException ie) {
+        // do nothing.
+      }
+
+      // produce click data.
+      for (int i = 0; i < CLICK_MESSAGES; i++) {
+        int userId = randomGenerator.nextInt(USER_COUNT);
+        String url = "http://foo.bar/" + randomGenerator.nextInt(6);
+        producer.send(new ProducerRecord<Integer, String>(CLICK_TOPIC, userId, url));
       }
     } finally {
       producer.close();
