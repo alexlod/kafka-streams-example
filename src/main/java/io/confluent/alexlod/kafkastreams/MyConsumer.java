@@ -63,6 +63,8 @@ public class MyConsumer {
       log.info("\t" + location.key() + ": " + location.value());
 
 
+    // TODO: these two poll loops could be combined into one method.
+
     // next, consume from the aggregated topic.
     props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
     props.put("value.deserializer", "io.confluent.alexlod.kafkastreams.serialization.UrlRegionClicksDeserializer");

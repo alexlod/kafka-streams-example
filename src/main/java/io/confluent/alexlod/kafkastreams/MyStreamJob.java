@@ -21,6 +21,9 @@ import java.util.Properties;
 /**
  * Reads clicks and locations. Calculates clicks for each URL broken down by region.
  * Produces this result to a topic.
+ *
+ * This example is similar, yet slightly, to this one:
+ *   http://www.confluent.io/blog/distributed-real-time-joins-and-aggregations-on-user-activity-events-using-kafka-streams
  */
 public class MyStreamJob {
 
@@ -59,7 +62,8 @@ public class MyStreamJob {
     clickStream
             .leftJoin(userLocationsTable, (url, region) -> new UrlRegionClicks(url, region))
             .map((userId, regionUrlClicks) -> new KeyValue<String, UrlRegionClicks>(regionUrlClicks.getUrl(), regionUrlClicks))
-            .reduceByKey((firstClicks, secondClicks) -> firstClicks.combine(secondClicks), stringSerde, regionUrlClicksSerde, "ClicksPerRegionUnwindowed") // the lambda could be replaced with `RegionUrlClicks::combine`.
+            .reduceByKey((firstClicks, secondClicks) -> firstClicks.combine(secondClicks),
+                    stringSerde, regionUrlClicksSerde, "ClicksPerRegionUnwindowed") // the lambda could be replaced with `RegionUrlClicks::combine`.
             .to(stringSerde, regionUrlClicksSerde, OUTPUT_TOPIC);
 
     KafkaStreams streams = new KafkaStreams(builder, streamsConfiguration);
