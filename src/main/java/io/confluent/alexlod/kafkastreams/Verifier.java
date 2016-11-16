@@ -12,9 +12,9 @@ import java.util.List;
 import java.util.Properties;
 
 /**
- * Helper consumer that prints messages in a topic for debugging purposes.
+ * Helper consumer that prints messages in a topic for debugging purposes for the purposes of verification.
  */
-public class MyConsumer {
+public class Verifier {
   private static final Logger log = LoggerFactory.getLogger(MyStreamJob.class);
 
   public static void main (String[] args) {
@@ -26,14 +26,15 @@ public class MyConsumer {
     props.put("key.deserializer", "org.apache.kafka.common.serialization.IntegerDeserializer");
     props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
 
-    // first, consume from the click stream and locations topics.
+    // first, consume from the locations topics. Because it will never grow, stop consuming
+    // when all records have been consumed.
     KafkaConsumer<Integer, String> consumer = new KafkaConsumer<Integer, String>(props);
-    consumer.subscribe(Arrays.asList(MyProducer.CLICK_TOPIC, MyProducer.LOCATION_TOPIC));
+    consumer.subscribe(Arrays.asList(Bootstrapper.LOCATION_TOPIC));
 
-    List<ConsumerRecord<Integer, String>> clicks = new LinkedList<ConsumerRecord<Integer, String>>();
     List<ConsumerRecord<Integer, String>> locations = new LinkedList<ConsumerRecord<Integer, String>>();
     try {
       int consecutivePollsWithNoData = 0;
+      log.info("\nLocations:");
       while (consecutivePollsWithNoData < 10) {
         ConsumerRecords<Integer, String> records = consumer.poll(500);
         if (records.isEmpty())
@@ -42,30 +43,14 @@ public class MyConsumer {
           consecutivePollsWithNoData = 0;
 
         for (ConsumerRecord<Integer, String> record : records) {
-          if (record.topic().equals(MyProducer.CLICK_TOPIC))
-            clicks.add(record);
-          else if (record.topic().equals(MyProducer.LOCATION_TOPIC))
-            locations.add(record);
-          else
-            log.error("Received message from unknown topic. Ignoring. Topic: " + record.topic());
+          log.info("\t" + record.key() + ": " + record.value());
         }
       }
     } finally {
       consumer.close();
     }
 
-    log.info("Clicks:");
-    for (ConsumerRecord<Integer, String> click : clicks)
-      log.info("\t" + click.key() + ": " + click.value());
-
-    log.info("\nLocations:");
-    for (ConsumerRecord<Integer, String> location : locations)
-      log.info("\t" + location.key() + ": " + location.value());
-
-
-    // TODO: these two poll loops could be combined into one method.
-
-    // next, consume from the aggregated topic.
+    // next, consume from the aggregated topic, and consume forever.
     props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
     props.put("value.deserializer", "io.confluent.alexlod.kafkastreams.serialization.UrlRegionClicksDeserializer");
 
@@ -74,13 +59,8 @@ public class MyConsumer {
 
     log.info("\nUrl Region Clicks (KTable):");
     try {
-      int consecutivePollsWithNoData = 0;
-      while (consecutivePollsWithNoData < 10) {
+      while (true) {
         ConsumerRecords<String, UrlRegionClicks> records = outputConsumer.poll(500);
-        if (records.isEmpty())
-          consecutivePollsWithNoData++;
-        else
-          consecutivePollsWithNoData = 0;
 
         for (ConsumerRecord<String, UrlRegionClicks> record : records) {
           UrlRegionClicks value = record.value();
@@ -90,6 +70,7 @@ public class MyConsumer {
         }
       }
     } finally {
+      // TODO: add a shutdown hook.
       outputConsumer.close();
     }
   }

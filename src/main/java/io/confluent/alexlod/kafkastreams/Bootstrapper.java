@@ -8,24 +8,19 @@ import java.util.Properties;
 import java.util.Random;
 
 /**
- * Produce messages to two topics:
- *
- * clicks:
- *   key: user_id (int)
- *   value: url (string)
+ * Produce user profile information into the following topic:
  *
  * locations:
  *   key: user_id (int)
  *   value: url (string)
+ *
  */
-public class MyProducer {
-  public static final int CLICK_MESSAGES = 200;
+public class Bootstrapper {
   public static final int USER_COUNT = 10;
 
-  public static final String CLICK_TOPIC = "clicks";
   public static final String LOCATION_TOPIC = "locations";
 
-  public static void main(String[] args) {
+  public static Producer<Integer, String> buildProducer() {
     Properties props = new Properties();
     props.put("bootstrap.servers", "localhost:9092");
     props.put("acks", "all");
@@ -33,9 +28,13 @@ public class MyProducer {
     props.put("key.serializer", "org.apache.kafka.common.serialization.IntegerSerializer");
     props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
 
+    return new KafkaProducer<Integer, String>(props);
+  }
+
+  public static void main(String[] args) {
     Random randomGenerator = new Random();
 
-    Producer<Integer, String> producer = new KafkaProducer<Integer, String>(props);
+    Producer<Integer, String> producer = buildProducer();
 
     try {
       // produce location data. These must be produced before the click data so they're loaded
@@ -54,21 +53,6 @@ public class MyProducer {
             location = "Woodside";
         }
         producer.send(new ProducerRecord<Integer, String>(LOCATION_TOPIC, userId, location));
-      }
-
-      // flush messages and sleep, just in case.
-      producer.flush();
-      try {
-        Thread.sleep(1000);
-      } catch (InterruptedException ie) {
-        // do nothing.
-      }
-
-      // produce click data.
-      for (int i = 0; i < CLICK_MESSAGES; i++) {
-        int userId = randomGenerator.nextInt(USER_COUNT);
-        String url = "http://foo.bar/" + randomGenerator.nextInt(6);
-        producer.send(new ProducerRecord<Integer, String>(CLICK_TOPIC, userId, url));
       }
     } finally {
       producer.close();

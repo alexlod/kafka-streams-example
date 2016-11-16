@@ -55,27 +55,26 @@ public class MyStreamJob {
     deleteState();
 
     KStreamBuilder builder = new KStreamBuilder();
-    KStream<Integer, String> clickStream = builder.stream(intSerde, stringSerde, MyProducer.CLICK_TOPIC);
-    KTable<Integer, String> userLocationsTable = builder.table(intSerde, stringSerde, MyProducer.LOCATION_TOPIC);
+    KStream<Integer, String> clickStream = builder.stream(intSerde, stringSerde, ClickSimulator.CLICK_TOPIC);
+    KTable<Integer, String> userLocationsTable = builder.table(intSerde, stringSerde, Bootstrapper.LOCATION_TOPIC, "LocationStateStore");
 
     // desired output: url -> (region1 -> 4, region2 -> 6, region3 -> 1)
     clickStream
             .leftJoin(userLocationsTable, (url, region) -> new UrlRegionClicks(url, region))
             .map((userId, regionUrlClicks) -> new KeyValue<String, UrlRegionClicks>(regionUrlClicks.getUrl(), regionUrlClicks))
-            .reduceByKey((firstClicks, secondClicks) -> firstClicks.combine(secondClicks),
-                    stringSerde, regionUrlClicksSerde, "ClicksPerRegionUnwindowed") // the lambda could be replaced with `RegionUrlClicks::combine`.
+            .groupByKey(stringSerde, regionUrlClicksSerde)
+            .reduce((firstClicks, secondClicks) -> firstClicks.combine(secondClicks), "ClicksPerRegionUnwindowed") // the lambda could be replaced with `RegionUrlClicks::combine`.
             .to(stringSerde, regionUrlClicksSerde, OUTPUT_TOPIC);
 
     KafkaStreams streams = new KafkaStreams(builder, streamsConfiguration);
     streams.start();
 
-    try {
-      Thread.sleep(10000);
-    } catch (InterruptedException ie) {
-      // do nothing.
-    }
-    streams.close();
-    deleteState();
+    Runtime.getRuntime().addShutdownHook(new Thread() {
+      public void run() {
+        streams.close();
+        deleteState();
+      }
+    });
   }
 
   private static void deleteState() {
