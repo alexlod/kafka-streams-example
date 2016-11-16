@@ -1,5 +1,6 @@
 package io.confluent.alexlod.kafkastreams;
 
+import io.confluent.alexlod.kafkastreams.rest.InteractiveQueriesRestService;
 import io.confluent.alexlod.kafkastreams.serialization.UrlRegionClicksSerde;
 import org.apache.commons.io.FileUtils;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -38,12 +39,14 @@ public class MyStreamJob {
 
   public static final long SLEEP_BETWEEN_STATE_STORE_QUERIES_MS = 10000;
 
+  public static final int HTTP_PORT = 8089;
+
   private static final Logger log = LoggerFactory.getLogger(MyStreamJob.class);
 
   public static void main (String[] args) {
-    final Serde<String> stringSerde = Serdes.String();
-    final Serde<Integer> intSerde = Serdes.Integer();
-    final Serde<UrlRegionClicks> regionUrlClicksSerde = new UrlRegionClicksSerde();
+    Serde<String> stringSerde = Serdes.String();
+    Serde<Integer> intSerde = Serdes.Integer();
+    Serde<UrlRegionClicks> regionUrlClicksSerde = new UrlRegionClicksSerde();
 
     Properties streamsConfiguration = new Properties();
     streamsConfiguration.put(StreamsConfig.APPLICATION_ID_CONFIG, "kafkastreams-example-click-realtime-report");
@@ -52,6 +55,7 @@ public class MyStreamJob {
     streamsConfiguration.put(StreamsConfig.KEY_SERDE_CLASS_CONFIG, intSerde.getClass().getName());
     streamsConfiguration.put(StreamsConfig.VALUE_SERDE_CLASS_CONFIG, stringSerde.getClass().getName());
     streamsConfiguration.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+    streamsConfiguration.put(StreamsConfig.APPLICATION_SERVER_CONFIG, "localhost:" + HTTP_PORT);
 
     // Explicitly place the state directory under /tmp so that we can remove it via
     // `purgeLocalStreamsState` below.  Once Streams is updated to expose the effective
@@ -59,7 +63,7 @@ public class MyStreamJob {
     // with automatically) we don't need to set this anymore and can update `purgeLocalStreamsState`
     // accordingly.
     streamsConfiguration.put(StreamsConfig.STATE_DIR_CONFIG, STREAMS_LOCAL_DIR);
-    deleteState();
+    deleteState(); // delete state just for development purposes.
 
     KStreamBuilder builder = new KStreamBuilder();
     KStream<Integer, String> clickStream = builder.stream(intSerde, stringSerde, ClickSimulator.CLICK_TOPIC);
@@ -76,13 +80,26 @@ public class MyStreamJob {
     KafkaStreams streams = new KafkaStreams(builder, streamsConfiguration);
     streams.start();
 
+    // create the rest service that other applications can use to query the state store.
+    // some example queries:
+    //    http://localhost:8089/region-clicks/http%3A%2F%2Ffoo.bar%2F4 -- will show the click-region data for URL http://foo.bar/4 (which is URL-encoded)
+    //    http://localhost:8089/instances -- show all instances of the application and what state stores they have
+    //    http://localhost:8089/instances/http%3A%2F%2Ffoo.bar%2F4 -- the instance that has the URL http://foo.bar/4 (which is URL-encoded)
+    InteractiveQueriesRestService restService = startRestProxy(streams, HTTP_PORT);
+
     Runtime.getRuntime().addShutdownHook(new Thread() {
       public void run() {
         streams.close();
-        deleteState();
+        deleteState(); // delete state just for development purposes.
+        try {
+          restService.stop();
+        } catch (Exception e) {
+          log.error("Rest service couldn't be stopped: " + e);
+        }
       }
     });
 
+    // query local state -- this is an example of "in app" queries.
     while (true) {
       try {
         Thread.sleep(SLEEP_BETWEEN_STATE_STORE_QUERIES_MS);
@@ -97,6 +114,16 @@ public class MyStreamJob {
       }
       log.info("");
     }
+  }
+
+  private static InteractiveQueriesRestService startRestProxy(KafkaStreams streams, int port) {
+    InteractiveQueriesRestService interactiveQueriesRestService = new InteractiveQueriesRestService(streams);
+    try {
+      interactiveQueriesRestService.start(port);
+    } catch (Exception e) {
+      throw new RuntimeException("Rest service couldn't be started: " + e);
+    }
+    return interactiveQueriesRestService;
   }
 
   private static void deleteState() {
