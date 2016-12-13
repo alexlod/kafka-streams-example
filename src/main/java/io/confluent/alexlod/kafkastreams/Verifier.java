@@ -31,7 +31,6 @@ public class Verifier {
     KafkaConsumer<Integer, String> consumer = new KafkaConsumer<Integer, String>(props);
     consumer.subscribe(Arrays.asList(Bootstrapper.LOCATION_TOPIC));
 
-    List<ConsumerRecord<Integer, String>> locations = new LinkedList<ConsumerRecord<Integer, String>>();
     try {
       int consecutivePollsWithNoData = 0;
       log.info("\nLocations:");
